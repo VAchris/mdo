@@ -31,6 +31,15 @@ namespace gov.va.medora.mdo.dao
         Appointment[] getFutureAppointments(string pid);
         Appointment[] getAppointments(int pastDays, int futureDays);
         Appointment[] getAppointments(string pid, int pastDays, int futureDays);
+
+        HospitalLocation getClinicSchedulingDetails(string clinicId);
+        IList<Appointment> getPendingAppointments(string startDate);
+        string getClinicAvailability(string clinicId);
+        IList<AppointmentType> getAppointmentTypes(string target);
+        Appointment makeAppointment(Appointment appointment);
+        Appointment cancelAppointment(Appointment appointment);
+        Appointment checkInAppointment(Appointment appointment);
+
         string getAppointmentText(string apptId);
         string getAppointmentText(string pid, string apptId);
         Adt[] getInpatientMoves(string fromDate, string toDate);

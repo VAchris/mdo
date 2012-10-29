@@ -336,5 +336,40 @@ namespace gov.va.medora.mdo.api
         {
             return ((IEncounterDao)cxn.getDao(DAO_NAME)).getSiteDivisions(siteId);
         }
+
+        public IList<Appointment> getPendingAppointments(AbstractConnection cxn, string startDate)
+        {
+            return ((IEncounterDao)cxn.getDao(DAO_NAME)).getPendingAppointments(startDate);
+        }
+
+        public IList<AppointmentType> getAppointmentTypes(AbstractConnection cxn, string target)
+        {
+            return ((IEncounterDao)cxn.getDao(DAO_NAME)).getAppointmentTypes(target);
+        }
+
+        public string getClinicAvailability(AbstractConnection cxn, string clinicId)
+        {
+            return ((IEncounterDao)cxn.getDao(DAO_NAME)).getClinicAvailability(clinicId);
+        }
+
+        public Appointment makeAppointment(AbstractConnection cxn, Appointment appointment)
+        {
+            return ((IEncounterDao)cxn.getDao(DAO_NAME)).makeAppointment(appointment);
+        }
+
+        public Appointment cancelAppointment(AbstractConnection cxn, Appointment appointment)
+        {
+            return ((IEncounterDao)cxn.getDao(DAO_NAME)).cancelAppointment(appointment);
+        }
+
+        public Appointment checkInAppointment(AbstractConnection cxn, Appointment appointment)
+        {
+            return ((IEncounterDao)cxn.getDao(DAO_NAME)).checkInAppointment(appointment);
+        }
+
+        public HospitalLocation getClinicSchedulingDetails(AbstractConnection cxn, string clinicId)
+        {
+            return ((IEncounterDao)cxn.getDao(DAO_NAME)).getClinicSchedulingDetails(clinicId);
+        }
     }
 }

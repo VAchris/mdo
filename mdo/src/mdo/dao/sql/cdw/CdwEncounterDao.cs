@@ -430,5 +430,42 @@ namespace gov.va.medora.mdo.dao.sql.cdw
         }
         #endregion
 
+        public IList<Appointment> getPendingAppointments(string startDate)
+        {
+            throw new NotImplementedException();
+        }
+
+        public string getClinicAvailability(string clinicId)
+        {
+            throw new NotImplementedException();
+        }
+
+        public IList<AppointmentType> getAppointmentTypes(string target)
+        {
+            throw new NotImplementedException();
+        }
+
+        public Appointment makeAppointment(Appointment appointment)
+        {
+            throw new NotImplementedException();
+        }
+
+        public Appointment cancelAppointment(Appointment appointment)
+        {
+            throw new NotImplementedException();
+        }
+
+        public Appointment checkInAppointment(Appointment appointment)
+        {
+            throw new NotImplementedException();
+        }
+
+
+        public HospitalLocation getClinicSchedulingDetails(string clinicId)
+        {
+            throw new NotImplementedException();
+        }
+
+
     }
 }

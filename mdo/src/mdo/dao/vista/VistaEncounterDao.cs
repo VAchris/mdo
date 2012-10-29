@@ -213,6 +213,629 @@ namespace gov.va.medora.mdo.dao.vista
 
         #region Appointments
 
+        #region Scheduling Code
+
+        #region Clinic Details
+
+        public HospitalLocation getClinicSchedulingDetails(string clinicId)
+        {
+            DdrGetsEntry request = buildGetClinicSchedulingDetailsQuery(clinicId);
+            string[] response = request.execute();
+            HospitalLocation result = toClinicSchedulingDetails(response);
+            result.Availability = getClinicAvailability(clinicId); // supplement availability
+
+            return result;
+        }
+
+        internal DdrGetsEntry buildGetClinicSchedulingDetailsQuery(string clinicId)
+        {
+            DdrGetsEntry query = new DdrGetsEntry(this.cxn);
+            query.File = "44";
+            query.Fields = ".01;1;2;7;9;24;1912;1914;1917";
+            query.Flags = "IE";
+            query.Iens = clinicId + ",";
+            return query;
+        }
+
+        internal HospitalLocation toClinicSchedulingDetails(string[] response)
+        {
+            HospitalLocation result = new HospitalLocation();
+            
+            if (response == null || response.Length <= 0 || String.IsNullOrEmpty(response[0]) || response[0].Contains("ERROR"))
+            {
+                throw new MdoException("Invalid response for building clinic scheduling details");
+            }
+
+            foreach (string line in response)
+            {
+                if (string.IsNullOrEmpty(line))
+                {
+                    continue;
+                }
+
+                if (!(line.StartsWith("44")))
+                {
+                    continue;
+                }
+
+                string[] pieces = StringUtils.split(line, StringUtils.CARET);
+
+                if (pieces == null || pieces.Length != 5)
+                {
+                    continue;
+                }
+
+                switch (pieces[2])
+                {
+                    //query.Fields = ".01;1;2;7;9;24;1912;1914;1917";
+                    case ".01" :
+                        result.Name = pieces[3];
+                        break;
+                    case "1" :
+                        result.Abbr = pieces[3];
+                        break;
+                    case "2":
+                        result.Type = pieces[3];
+                        result.TypeExtension = new KeyValuePair<string, string>(result.Type, pieces[4]);
+                        break;
+                    case "7":
+                        result.VisitLocation = pieces[3];
+                        break;
+                    case "9":
+                        result.Service = new KeyValuePair<string, string>(pieces[3], pieces[4]);
+                        break;
+                    case "24":
+                        result.AskForCheckIn = String.Equals(pieces[3], "1") | String.Equals(pieces[3], "Y", StringComparison.CurrentCultureIgnoreCase);
+                        break;
+                    case "1912":
+                        result.AppointmentLength = pieces[3];
+                        break;
+                    case "1914":
+                        result.ClinicDisplayStartTime = pieces[3];
+                        break;
+                    case "1917":
+                        result.DisplayIncrements = pieces[3];
+                        break;
+                }
+            }
+
+            return result;
+        }
+
+        #endregion
+
+        #region Appointment Type
+
+        public IList<AppointmentType> getAppointmentTypes(string start)
+        {
+            MdoQuery request = null;
+            string response = "";
+
+            try
+            {
+                request = buildGetAppointmentTypesRequest("", start, "");
+                response = (string)cxn.query(request, new MenuOption(VistaConstants.CPRS_CONTEXT));
+                return toAppointmentTypes(response);
+            }
+            catch (Exception exc)
+            {
+                throw new MdoException(request, response, exc);
+            }
+        }
+
+        internal MdoQuery buildGetAppointmentTypesRequest(string search, string start, string number)
+        {
+            VistaQuery request = new VistaQuery("SD APPOINTMENT LIST BY NAME");
+            request.addParameter(request.LITERAL, search);
+            request.addParameter(request.LITERAL, start);
+            request.addParameter(request.LITERAL, number);
+            return request;
+        }
+
+        internal IList<AppointmentType> toAppointmentTypes(string response)
+        {
+            if (String.IsNullOrEmpty(response))
+            {
+                return new List<AppointmentType>();
+            }
+
+            IList<AppointmentType> appts = new List<AppointmentType>();
+
+            string[] lines = StringUtils.split(response, StringUtils.CRLF);
+
+            if (lines == null || lines.Length == 0)
+            {
+                throw new MdoException(MdoExceptionCode.DATA_UNEXPECTED_FORMAT);
+            }
+
+            string[] metaLine = StringUtils.split(lines[0], StringUtils.EQUALS);
+            string[] metaPieces = StringUtils.split(metaLine[1], StringUtils.CARET);
+            Int32 numResult = Convert.ToInt32(metaPieces[0]);
+            // metaPieces[1] = number of records requested (number argument). asterisk means all were returned
+            // metaPieces[2] = ?
+
+            for (int i = 1; i < lines.Length; i++)
+            {
+                string[] pieces = StringUtils.split(lines[i], StringUtils.EQUALS);
+
+                if (pieces.Length < 2 || String.IsNullOrEmpty(pieces[1])) // at the declaration of a new result - create a new appointment type
+                {
+                    if (lines.Length >= i + 2) // just to be safe - check there are two more lines so we can obtain the ID and name
+                    {
+                        AppointmentType current = new AppointmentType();
+                        current.ID = (StringUtils.split(lines[i + 1], StringUtils.EQUALS))[1];
+                        current.Name = (StringUtils.split(lines[i + 2], StringUtils.EQUALS))[1];
+                        appts.Add(current);
+                    }
+                }
+            }
+
+            // TBD - should we check the meta info matched the number of results found?
+            return appts;
+        }
+
+        public AppointmentType getAppointmentTypeDetails(string apptTypeIen)
+        {
+            MdoQuery request = null;
+            string response = "";
+
+            try
+            {
+                request = buildGetAppointmentTypeDetailsRequest(apptTypeIen);
+                response = (string)cxn.query(request);
+                return toAppointmentTypeDetails(response);
+            }
+            catch (Exception exc)
+            {
+                throw new MdoException(request, response, exc);
+            }
+        }
+
+        internal MdoQuery buildGetAppointmentTypeDetailsRequest(string apptTypeIen)
+        {
+            VistaQuery request = new VistaQuery("SD GET APPOINTMENT TYPE");
+            request.addParameter(request.LITERAL, apptTypeIen);
+            return request;
+        }
+
+        /// <summary>
+        /// RESULT(\"DEFAULT ELIGIBILITY\")=4^COLLATERAL OF VET.
+        //RESULT(\"DESCRIPTION\")=REC(409.1,\"7,\",\"DESCRIPTION\")^REC(409.1,\"7,\",\"DESCRIPTION\")
+        //RESULT(\"DUAL ELIGIBILITY ALLOWED\")=1^YES
+        //RESULT(\"IGNORE MEANS TEST BILLING\")=1^IGNORE
+        //RESULT(\"INACTIVE\")=
+        //RESULT(\"NAME\")=COLLATERAL OF VET.^COLLATERAL OF VET.
+        //RESULT(\"NUMBER\")=7^7
+        //RESULT(\"SYNONYM\")=COV^COV
+        /// </summary>
+        /// <param name="response"></param>
+        /// <returns></returns>
+        internal AppointmentType toAppointmentTypeDetails(string response)
+        {
+            AppointmentType result = new AppointmentType();
+
+            if (String.IsNullOrEmpty(response))
+            {
+                return result;
+            }
+
+            string[] lines = StringUtils.split(response, StringUtils.CRLF);
+
+            if (lines == null || lines.Length == 0)
+            {
+                return result;
+            }
+
+            foreach (string line in lines)
+            {
+                string[] pieces = StringUtils.split(line, StringUtils.EQUALS);
+
+                if (pieces == null || pieces.Length != 2)
+                {
+                    continue;
+                }
+
+                string fieldLabel = StringUtils.extractQuotedString(pieces[0]);
+                string[] dataPieces = StringUtils.split(pieces[1], StringUtils.CARET);
+
+                if (dataPieces == null || dataPieces.Length != 2)
+                {
+                    continue;
+                }
+
+                switch (fieldLabel)
+                {
+                    case "DEFAULT ELGIBILITY" :
+                        break;
+                    case "DESCRIPTION" :
+                        result.Description = dataPieces[1];
+                        break;
+                    case "DUAL ELIGIBILITY ALLOWED" :
+                        break;
+                    case "IGNORE MEANS TEST BILLING" :
+                        break;
+                    case "INACTIVE" :
+                        // haven't seen this populated anywhere - what value comes across for inactive??
+                        //result.Active = (dataPieces[1] == "I"); // this was just a guess
+                        break;
+                    case "NAME" :
+                        result.Name = dataPieces[1];
+                        break;
+                    case "NUMBER" :
+                        result.ID = dataPieces[1];
+                        break;
+                    case "SYNONYM" :
+                        result.Synonym = dataPieces[1];
+                        break;
+                }
+            }
+
+            return result;
+        }
+        #endregion
+
+        #region Schedule Appointment
+        public Appointment makeAppointment(Appointment appointment)
+        {
+            MdoQuery request = buildMakeAppointmentRequest(appointment);
+            string response = (string)cxn.query(request);
+            toAppointmentCheck(response); // throws exception on error
+            return appointment;
+        }
+
+        internal MdoQuery buildMakeAppointmentRequest(Appointment appointment)
+        {
+            VistaQuery request = new VistaQuery("SD APPOINTMENT MAKE");
+            request.addParameter(request.LITERAL, cxn.Pid);
+            request.addParameter(request.LITERAL, appointment.Clinic.Id);
+            request.addParameter(request.LITERAL, appointment.Timestamp);
+            request.addParameter(request.LITERAL, appointment.AppointmentType.ID);
+            request.addParameter(request.LITERAL, appointment.Length);
+            request.addParameter(request.LITERAL, ""); // seems to throw an error if this argument is not present though documentation says optional
+            return request;
+        }
+        #endregion
+
+        #region Check-In
+        public Appointment checkInAppointment(Appointment appointment)
+        {
+            MdoQuery request = buildCheckInAppointmentRequest(appointment);
+            string response = (string)cxn.query(request);
+            return toCheckInAppointment(response);
+        }
+
+        internal MdoQuery buildCheckInAppointmentRequest(Appointment appointment)
+        {
+            VistaQuery request = new VistaQuery("SD APPOINTMENT CHECK-IN");
+            request.addParameter(request.LITERAL, appointment.Id);
+            return request;
+        }
+
+        internal Appointment toCheckInAppointment(string response)
+        {
+            throw new NotImplementedException();
+        }
+        #endregion
+
+        #region Cancel Appointment
+        public Appointment cancelAppointment(Appointment appointment)
+        {
+            MdoQuery request = buildCancelAppointmentRequest(appointment);
+            string response = (string)cxn.query(request);
+            if (!String.Equals(response, "OK")) 
+            {
+                throw new MdoException("Unable to cancel appointment: " + response);
+            }
+            return null; // TODO - implement
+        }
+
+        public MdoQuery buildCancelAppointmentRequest(Appointment appointment)
+        {
+            VistaQuery request = new VistaQuery("SD APPOINTMENT CANCEL");
+            request.addParameter(request.LITERAL, appointment.Id);
+            return request;
+        }
+        #endregion
+
+        #region Check Appointment
+
+        public bool getAppointmentCheck(string clinicIen, string startDate, string apptLength)
+        {
+            MdoQuery request = null;
+            string response = "";
+
+            try
+            {
+                request = buildGetAppointmentCheckRequest(cxn.Pid, clinicIen, startDate, apptLength);
+                response = (string)cxn.query(request);
+                return toAppointmentCheck(response);
+            }
+            catch (Exception exc)
+            {
+                throw new MdoException(request, response, exc);
+            }
+        }
+
+        internal MdoQuery buildGetAppointmentCheckRequest(string dfn, string clinicIen, string startDate, string apptLength)
+        {
+            VistaQuery request = new VistaQuery("SD APPOINTMENT CHECK");
+            request.addParameter(request.LITERAL, clinicIen);
+            request.addParameter(request.LITERAL, dfn);
+            request.addParameter(request.LITERAL, startDate);
+            request.addParameter(request.LITERAL, apptLength);
+            return request;
+        }
+
+        // TBD - don't appear to be receiving 1/0 for valid appointments - just an empty string. should that return true???
+        internal bool toAppointmentCheck(string response)
+        {
+            if (String.IsNullOrEmpty(response) || String.Equals("1", response))
+            {
+                return true;
+            }
+
+            if (String.Equals(0, response))
+            {
+                return false;
+            }
+
+            if (response.Contains("="))
+            {
+                string[] pieces = StringUtils.split(response, StringUtils.EQUALS);
+                string[] codeAndMessage = StringUtils.split(pieces[1], StringUtils.CARET);
+                throw new MdoException("Invalid appointment: " + codeAndMessage[0] + " - " + codeAndMessage[1]);
+            }
+            return false;
+        }
+
+        #endregion
+
+        #region Get Availability
+
+        public string getClinicAvailability(string clinicIen)
+        {
+            //DdrLister request = null;
+            MdoQuery request = null;
+            //string[] response = null;
+            string response = "";
+
+            try
+            {
+                //request = buildGetClinicAvailabilityRequestDdr(clinicIen);
+                request = buildGetClinicAvailabilityRequest(clinicIen);
+                //response = (string[])request.execute();
+                response = (string)cxn.query(request);
+                return toClinicAvailability(response);
+            }
+            catch (Exception exc)
+            {
+                //throw new MdoException(request.buildRequest().buildMessage(), exc);
+                throw new MdoException(request, response, exc);
+            }
+        }
+
+        internal DdrLister buildGetClinicAvailabilityRequestDdr(string clinicIen)
+        {
+            DdrLister request = new DdrLister(this.cxn);
+            request.File = "44.005"; // PATTERN subfile of the HOSPITAL LOCATION file
+            request.Fields = ".01;1;2;3";
+            request.Flags = "IP";
+            //request.From = "3120722";
+            request.Iens = "," + clinicIen + ",";
+            request.Max = "30";
+            request.Xref = "#";
+            return request;
+        }
+
+        internal MdoQuery buildGetClinicAvailabilityRequest(string clinicIen)
+        {
+            VistaQuery request = new VistaQuery("SD GET CLINIC AVAILABILITY");
+            request.addParameter(request.LITERAL, clinicIen);
+            return request;
+        }
+
+        internal string toClinicAvailability(string response)
+        {
+            return response;
+        }
+
+        internal IList<Appointment> toClinicAvailabilityDdr(string[] response)
+        {
+            throw new NotImplementedException();
+        }
+
+        #endregion
+
+        #region Pending Appointments
+
+        public IList<Appointment> getPendingAppointments(string startDate)
+        {
+            return getPendingAppointments(cxn.Pid, startDate);
+        }
+
+        internal IList<Appointment> getPendingAppointments(string pid, string startDate)
+        {
+            MdoQuery request = null;
+            string response = "";
+
+            try
+            {
+                request = buildGetPendingAppointmentsRequest(pid, startDate);
+                response = (string)cxn.query(request);
+                return toPendingAppointments(response);
+            }
+            catch (Exception exc)
+            {
+                throw new MdoException(request, response, exc);
+            }
+        }
+
+        internal MdoQuery buildGetPendingAppointmentsRequest(string pid, string startDate)
+        {
+            VistaQuery request = new VistaQuery("SD GET PATIENT PENDING APPTS");
+            request.addParameter(request.LITERAL, pid);
+            request.addParameter(request.LITERAL, startDate);
+            return request;
+        }
+
+        internal IList<Appointment> toPendingAppointments(string response)
+        {
+            IList<Appointment> result = new List<Appointment>();
+
+            if (String.IsNullOrEmpty(response))
+            {
+                return result;
+            }
+
+            string[] lines = StringUtils.split(response, StringUtils.CRLF);
+
+            if (lines == null || lines.Length == 0)
+            {
+                return result;
+            }
+
+            Dictionary<string, Appointment> apptDict = new Dictionary<string, Appointment>();
+
+            foreach (string line in lines)
+            {
+                int timestampStart = line.IndexOf("(");
+                int timestampEnd = line.IndexOf(",", timestampStart + 1);
+                if (timestampStart <= 0 || timestampEnd <= 0 || timestampEnd <= timestampStart)
+                {
+                    continue;
+                }
+                string timestamp = line.Substring(timestampStart + 1, timestampEnd - timestampStart - 1);
+
+                if (!apptDict.ContainsKey(timestamp))
+                {
+                    apptDict.Add(timestamp, new Appointment());
+                    apptDict[timestamp].Timestamp = timestamp; // set this right away so we don't do it every trip through the loop below
+                }
+
+                Appointment current = apptDict[timestamp];
+
+                string[] pieces = StringUtils.split(line, StringUtils.EQUALS);
+                if (pieces == null || pieces.Length != 2)
+                {
+                    continue;
+                }
+                
+                string fieldLabel = StringUtils.extractQuotedString(pieces[0]);
+                
+                switch (fieldLabel)
+                {
+                    case "APPOINTMENT TYPE" :
+                        current.AppointmentType = new AppointmentType() { Name = pieces[1] };
+                        current.Type = pieces[1];
+                        break;
+                    case "CLINIC" :
+                        current.Clinic = new HospitalLocation() { Name = pieces[1] };
+                        break;
+                    case "COLLATERAL VISIT" :
+                        current.Purpose = pieces[1];
+                        break;
+                    case "CONSULT LINK" :
+                        break;
+                    case "EKG DATE/TIME" :
+                        current.EkgDateTime = pieces[1];
+                        break;
+                    case "LAB DATE/TIME" :
+                        current.LabDateTime = pieces[1];
+                        break;
+                    case "LENGTH OF APP'T" :
+                        current.Length = pieces[1];
+                        break;
+                    case "X-RAY DATE/TIME" :
+                        current.XrayDateTime = pieces[1];
+                        break;
+                    default :
+                        break;
+                }
+            }
+
+            foreach (Appointment appt in apptDict.Values) // copy appts over to list
+            {
+                result.Add(appt);
+            }
+            return result;
+        }
+        #endregion
+
+        #region Has Pending Appointments
+
+        //public IList<Appointment> getPendingAppointments(string startDate)
+        //{
+        //    return getPendingAppointments(cxn.Pid, startDate);
+        //}
+
+        //internal IList<Appointment> getPendingAppointments(string pid, string startDate)
+        //{
+        //    MdoQuery request = null;
+        //    string response = "";
+
+        //    try
+        //    {
+        //        request = buildGetPendingAppointmentsRequest(pid, startDate);
+        //        response = (string)cxn.query(request);
+        //        return toPendingAppointments(response);
+        //    }
+        //    catch (Exception exc)
+        //    {
+        //        throw new MdoException(request, response, exc);
+        //    }
+        //}
+
+        //internal MdoQuery buildGetPendingAppointmentsRequest(string pid, string startDate)
+        //{
+        //    VistaQuery request = new VistaQuery("SD GET PATIENT PENDING APPTS");
+        //    request.addParameter(request.LITERAL, pid);
+        //    request.addParameter(request.LITERAL, startDate);
+        //    return request;
+        //}
+
+        //internal IList<Appointment> toPendingAppointments(string response)
+        //{
+        //    throw new NotImplementedException();
+        //}
+
+        #endregion
+
+        #region Eligibility
+
+        public string getEligibilityDetails(string eligibilityIen)
+        {
+            MdoQuery request = null;
+            string response = "";
+
+            try
+            {
+                request = buildGetEligibilityRequest(eligibilityIen);
+                response = (string)cxn.query(request);
+                return toEligibility(response);
+            }
+            catch (Exception exc)
+            {
+                throw new MdoException(request, response, exc);
+            }
+        }
+
+        internal MdoQuery buildGetEligibilityRequest(string eligibilityIen)
+        {
+            VistaQuery request = new VistaQuery("SD GET ELIGIBILITY DETAILS");
+            request.addParameter(request.LITERAL, "EMPLOYEE");
+            return request;
+        }
+
+        internal string toEligibility(string response)
+        {
+            throw new NotImplementedException();
+        }
+
+
+        #endregion
+
+        #endregion
+
         public Appointment[] getAppointments(int pastDays, int futureDays)
         {
             return getAppointments(cxn.Pid, pastDays, futureDays);
